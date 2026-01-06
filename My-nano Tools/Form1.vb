@@ -1,4 +1,5 @@
-﻿Imports System.Drawing.Text
+﻿Imports System.Diagnostics.Eventing
+Imports System.Drawing.Text
 Imports System.IO
 
 Public Class Form1
@@ -44,32 +45,60 @@ Public Class Form1
     End Sub
 
     Private Sub btnInstall_Click(sender As Object, e As EventArgs) Handles btnInstall.Click
-        ' 1. WSL 설치 여부 확인
+
+        ' 1. 버튼이 잘 연결되었는지 확인하는 메시지
+        MessageBox.Show("설치 작업을 시작합니다...", "알림")
+
+        ' 2. WSL 설치 여부 확인
         If Not IsWslInstalled() Then
-            Dim result As DialogResult = MessageBox.Show("mynano 실행을 위해 WSL(Windows Subsystem for Linux) 설치가 필요합니다." & vbCrLf & "설치를 진행하시겠습니까? (관리자 권한 필요, 재부팅될 수 있음)", "설치 필요", MessageBoxButtons.YesNo, MessageBoxIcon.Question)
+            Dim result As DialogResult = MessageBox.Show(
+                "Mynano 실행을 위해 WSL(Windows Subsystem for Linux)이 필요합니다." & vbCrLf &
+                "지금 설치하시겠습니까? (관리자 권한 필요)",
+                "설치 필요", MessageBoxButtons.YesNo, MessageBoxIcon.Question)
 
             If result = DialogResult.Yes Then
-                InstallWsl()
+                InstallWsl() ' WSL 설치 함수 호출
+                ' 설치 후 재부팅이 필요할 수 있으므로 여기서 멈춤
+                Exit Sub
             Else
-                MessageBox.Show("WSL 설치가 필요합니다. 설치 후 다시 시도해주세요.", "설치 취소", MessageBoxButtons.OK, MessageBoxIcon.Information)
+                MessageBox.Show("WSL 설치가 취소되었습니다. Mynano를 사용할 수 없습니다.")
                 Exit Sub
             End If
-
-            DeployMynanoBinary()
         End If
+
+        ' 3. 핵심: 바이너리 배포 함수 호출
+        DeployMynanoBinary()
+
     End Sub
 
     Private Function IsWslInstalled() As Boolean
         Try
             Dim proc As New Process()
             proc.StartInfo.FileName = "wsl"
-            proc.StartInfo.Arguments = "--status"
-            proc.StartInfo.UseShellExecute = False
-            proc.StartInfo.CreateNoWindow = True
-            proc.Start()
-            proc.WaitForExit()
 
-            Return (proc.ExitCode = 0)
+            ' --list 명령어로 설치된 목록을 가져오기
+            proc.StartInfo.Arguments = "--list"
+            proc.StartInfo.UseShellExecute = False
+            proc.StartInfo.RedirectStandardOutput = True ' 출력 내용을 읽어야 함
+            proc.StartInfo.CreateNoWindow = True
+
+            ' 인코딩 문제 방지를 위해 유니코드 설정
+            proc.StartInfo.StandardOutputEncoding = System.Text.Encoding.Unicode
+
+            proc.Start()
+
+            ' 출력된 내용 모두 읽기
+            Dim output As String = proc.StandardOutput.ReadToEnd()
+            proc.WaitForExit(3000)
+
+            ' 1. 명령어가 에러를 뱉었거나 (기능 꺼짐)
+            ' 2. 출력 내용에 "Ubuntu"라는 단어가 없으면 설치 안 된 것으로 간주
+            If proc.ExitCode <> 0 OrElse Not output.Contains("Ubuntu") Then
+                Return False
+            End If
+
+            Return True
+
         Catch ex As Exception
             Return False
         End Try
@@ -79,57 +108,93 @@ Public Class Form1
         Try
             Dim proc As New Process()
             proc.StartInfo.FileName = "powershell"
-
+            ' 관리자 권한으로 wsl --install 실행
             proc.StartInfo.Arguments = "Start-Process wsl -ArgumentList '--install' -Verb RunAs"
             proc.StartInfo.UseShellExecute = True
             proc.Start()
-            proc.WaitForExit()
 
-            MessageBox.Show("WSL 설치가 완료되었습니다. 시스템을 재부팅해주세요.", "설치 완료", MessageBoxButtons.OK, MessageBoxIcon.Information)
+            MessageBox.Show("WSL 설치가 완료되고 아이디와 비밀번호를 모두 설정했으면 '예'를 눌러주세요." & vbCrLf &
+                            "설치가 완료되면 컴퓨터를 재부팅해야 합니다!", "안내")
         Catch ex As Exception
-            MessageBox.Show("WSL 설치 중 오류가 발생했습니다: " & ex.Message, "오류", MessageBoxButtons.OK, MessageBoxIcon.Error)
+            MessageBox.Show("설치 명령 실행 실패: " & ex.Message)
         End Try
     End Sub
 
     Private Sub DeployMynanoBinary()
         Try
-            ' 1. WSL의 기본 사용자 홈 디렉토리 찾기
-            ' (\\wsl$\Ubuntu\home\사용자명\ 형태로 접근)
+            MessageBox.Show("설치 시작 - (Target: Resource1)")
 
-            ' 현재 WSL 사용자의 이름을 알아내기
+            ' Resource1에서 직접 파일 꺼내기 (Reflection 방식)
+            ' 1. 리소스 매니저를 통해 Resource1에 접속하기
+            Dim rm As New System.Resources.ResourceManager("My_nano_Tools.Resource1", System.Reflection.Assembly.GetExecutingAssembly())
+
+            ' 2. "mynano"라는 이름의 파일 요청
+            ' (만약 파일 이름이 다르면 여기서 에러가 날 수 있으니 Try로 감싸기)
+            Dim obj As Object = rm.GetObject("mynano")
+
+            If obj Is Nothing Then
+                MessageBox.Show("Resource1 안에서 'mynano' 파일을 찾을 수 없습니다!" & vbCrLf &
+                                "리소스 탭에서 파일 이름이 'mynano'가 맞는지 확인해주세요.")
+                Exit Sub
+            End If
+
+            ' 3. 바이트 배열로 변환
+            Dim resourceData As Byte() = CType(obj, Byte())
+            MessageBox.Show($"파일 확보 성공 - 크기: {resourceData.Length} bytes")
+
+            ' 4. 윈도우 임시 폴더에 풀기
+            Dim tempFilePath As String = Path.Combine(Path.GetTempPath(), "mynano_temp")
+            File.WriteAllBytes(tempFilePath, resourceData)
+
+            ' 5. WSL 사용자 확인
             Dim userProc As New Process()
             userProc.StartInfo.FileName = "wsl"
-            userProc.StartInfo.Arguments = "whoami" ' WSL에서 현재 사용자 이름 얻기
+            userProc.StartInfo.Arguments = "whoami"
             userProc.StartInfo.UseShellExecute = False
             userProc.StartInfo.RedirectStandardOutput = True
             userProc.StartInfo.CreateNoWindow = True
             userProc.Start()
-            Dim wslUser As String = userProc.StandardOutput.ReadToEnd().Trim() ' 사용자 이름 wslUser에 저장
-            userProc.WaitForExit()
 
-            If wslUser = "" Then ' 사용자 이름을 못 찾았을 때
-                MessageBox.Show("WSL 사용자를 찾을 수 없습니다. WSL이 실행 중인지 확인하세요.")
+            If Not userProc.WaitForExit(3000) Then
+                MessageBox.Show("WSL 응답 없음")
                 Exit Sub
             End If
 
-            ' 2. 복사할 경로 설정 (WSL 파일 시스템에 직접 접근)
-            ' \\wsl.localhost\배포 파일\ 경로 사용
-            Dim targetDir As String = $"\\wsl.localhost\Ubuntu\home\{wslUser}\my-nano"
-            Dim targetFile As String = Path.Combine(targetDir, "mynano")
+            Dim wslUser As String = userProc.StandardOutput.ReadToEnd().Trim()
 
-            ' 폴더가 없으면 생성하기 (WSL command)
-            RunWslCommand($"mkdir -p /home/{wslUser}/my-nano")
+            ' 6. WSL로 복사 및 실행 권한 부여
+            Dim wslTargetDir As String = $"/home/{wslUser}/my-nano"
+            Dim wslTargetFile As String = $"{wslTargetDir}/mynano"
 
-            ' 3. 리소스에서 파일 꺼내서 저장하기
-            File.WriteAllBytes(targetFile, My.Resources.Resource1.mynano)
+            ' 윈도우 경로 -> WSL 경로 변환
+            Dim drive As String = tempFilePath.Substring(0, 1).ToLower()
+            Dim pathPart As String = tempFilePath.Substring(2).Replace("\", "/")
+            Dim wslTempPath As String = $"/mnt/{drive}{pathPart}"
 
-            ' 4. 실행 권한 부여하기 (chmod +x)
-            RunWslCommand($"chmod +x /home/{wslUser}/my-nano/mynano")
+            Dim commands As String = $"mkdir -p {wslTargetDir}; cp ""{wslTempPath}"" ""{wslTargetFile}""; chmod +x ""{wslTargetFile}"""
 
-            MessageBox.Show($"설치 완료! {vbCrLf}경로: {targetFile}", "성공")
+            RunWslCommand(commands)
+
+            MessageBox.Show($"설치 완료!{vbCrLf}경로: {wslTargetFile}", "성공")
 
         Catch ex As Exception
-            MessageBox.Show("파일 설치 실패: " & ex.Message & vbCrLf & "Ubuntu가 실행 중인지 확인해주세요.")
+            MessageBox.Show("오류 발생: " & ex.Message)
         End Try
+    End Sub
+
+    Private Sub btnOpenGithub_Click(sender As Object, e As EventArgs) Handles btnOpenGithub.Click
+        ' 주소를 지정하여 기본 웹 브라우저에서 열기
+        Dim url As String = "https://github.com/greenleo05/my-nano/tree/main"
+        Process.Start(New ProcessStartInfo(url) With {.UseShellExecute = True})
+    End Sub
+
+    Private Sub btnOpenVelog_Click(sender As Object, e As EventArgs) Handles btnOpenVelog.Click
+        Dim url As String = "https://velog.io/@greenleo5/series"
+        Process.Start(New ProcessStartInfo(url) With {.UseShellExecute = True})
+    End Sub
+
+    Private Sub btnOpenGithubpage_Click(sender As Object, e As EventArgs) Handles btnOpenGithubpage.Click
+        Dim url As String = "https://github.com/greenleo05/My-nano-Tools"
+        Process.Start(New ProcessStartInfo(url) With {.UseShellExecute = True})
     End Sub
 End Class
