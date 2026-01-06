@@ -137,8 +137,16 @@ Public Class Form1
             Dim resourceData As Byte() = CType(obj, Byte())
 
             ' 4. 윈도우 임시 폴더에 풀기
-            Dim tempFilePath As String = Path.Combine(Path.GetTempPath(), "mynano_temp")
+            Dim safeDir As String = "C:\Users\Public\MynanoTemp"
+
+            ' 폴더가 없으면 만들기
+            If Not Directory.Exists(safeDir) Then
+                Directory.CreateDirectory(safeDir)
+            End If
+
+            Dim tempFilePath As String = Path.Combine(safeDir, "mynano")
             File.WriteAllBytes(tempFilePath, resourceData)
+
 
             ' 5. WSL 사용자 확인
             Dim userProc As New Process()
