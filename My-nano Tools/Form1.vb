@@ -46,10 +46,7 @@ Public Class Form1
 
     Private Sub btnInstall_Click(sender As Object, e As EventArgs) Handles btnInstall.Click
 
-        ' 1. 버튼이 잘 연결되었는지 확인하는 메시지
-        MessageBox.Show("설치 작업을 시작합니다...", "알림")
-
-        ' 2. WSL 설치 여부 확인
+        ' 1. WSL 설치 여부 확인
         If Not IsWslInstalled() Then
             Dim result As DialogResult = MessageBox.Show(
                 "Mynano 실행을 위해 WSL(Windows Subsystem for Linux)이 필요합니다." & vbCrLf &
@@ -122,8 +119,6 @@ Public Class Form1
 
     Private Sub DeployMynanoBinary()
         Try
-            MessageBox.Show("설치 시작 - (Target: Resource1)")
-
             ' Resource1에서 직접 파일 꺼내기 (Reflection 방식)
             ' 1. 리소스 매니저를 통해 Resource1에 접속하기
             Dim rm As New System.Resources.ResourceManager("My_nano_Tools.Resource1", System.Reflection.Assembly.GetExecutingAssembly())
@@ -140,7 +135,6 @@ Public Class Form1
 
             ' 3. 바이트 배열로 변환
             Dim resourceData As Byte() = CType(obj, Byte())
-            MessageBox.Show($"파일 확보 성공 - 크기: {resourceData.Length} bytes")
 
             ' 4. 윈도우 임시 폴더에 풀기
             Dim tempFilePath As String = Path.Combine(Path.GetTempPath(), "mynano_temp")
